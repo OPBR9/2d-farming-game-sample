@@ -39,53 +39,126 @@
 </head>
 <body>
   <h1>2D Farming Game</h1>
-  <div id="info">Harvested Crops: <span id="inventory-count">0</span></div>
+  <!-- Inventory display shows counts for each crop type -->
+  <div id="info">
+    Harvested: 
+    Wheat <span id="wheat-count">0</span>, 
+    Rice <span id="rice-count">0</span>, 
+    Banana <span id="banana-count">0</span>
+  </div>
   <canvas id="gameCanvas" width="600" height="600"></canvas>
   <div id="controls">
-    <button id="plantButton">Plant Seed</button>
+    <button id="plantWheatButton">Plant Wheat</button>
+    <button id="plantRiceButton">Plant Rice</button>
+    <button id="plantBananaButton">Plant Banana</button>
+    <button id="waterButton">Water</button>
     <button id="harvestButton">Harvest</button>
   </div>
+  <!-- Weather display -->
+  <div id="weather">Weather: Sunny</div>
 
   <script>
     // Game configuration
     const rows = 6;
     const cols = 6;
     const cellSize = 100;
-    const growthTime = 10000; // time in milliseconds for crops to grow
+    // Crop definitions: each crop has an id, growth time, seed color and emoji to display when mature
+    const cropTypes = {
+      wheat: {
+        id: 1,
+        growthTime: 10000,
+        seedColor: '#006400',
+        emoji: '🌿'
+      },
+      rice: {
+        id: 2,
+        growthTime: 12000,
+        seedColor: '#b8860b',
+        emoji: '🌾'
+      },
+      banana: {
+        id: 3,
+        growthTime: 15000,
+        seedColor: '#ffd700',
+        emoji: '🍌'
+      }
+    };
+    // Per-cell state object: { state: 0(empty)|1(planted)|2(mature), type: null|'wheat'|'rice'|'banana', plantTime: timestamp, water: number }
+    const grid = [];
+    // Inventory counts per crop type
+    const inventory = {
+      wheat: 0,
+      rice: 0,
+      banana: 0
+    };
+    // Currently selected action: plantWheat, plantRice, plantBanana, water, harvest
+    let selectedAction = 'plantWheat';
+    // Weather state: 'Sunny' or 'Rain'
+    let weatherState = 'Sunny';
+    let lastRainCheck = Date.now();
+    let lastUpdateTime = Date.now();
 
-    // Game state arrays
-    const cellStates = []; // 0 = empty, 1 = planted, 2 = grown
-    const plantTimes = []; // timestamp when planted
-    let selectedAction = 'plant';
-    let inventory = 0;
-
-    // Initialize grid arrays
+    // Initialize grid
     for (let r = 0; r < rows; r++) {
-      cellStates[r] = [];
-      plantTimes[r] = [];
+      grid[r] = [];
       for (let c = 0; c < cols; c++) {
-        cellStates[r][c] = 0;
-        plantTimes[r][c] = 0;
+        grid[r][c] = {
+          state: 0,
+          type: null,
+          plantTime: 0,
+          water: 0
+        };
       }
     }
 
     // Get DOM elements
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    const inventoryCountEl = document.getElementById('inventory-count');
-    const plantButton = document.getElementById('plantButton');
+    // Inventory DOM elements
+    const wheatCountEl = document.getElementById('wheat-count');
+    const riceCountEl = document.getElementById('rice-count');
+    const bananaCountEl = document.getElementById('banana-count');
+    // Control buttons
+    const plantWheatButton = document.getElementById('plantWheatButton');
+    const plantRiceButton = document.getElementById('plantRiceButton');
+    const plantBananaButton = document.getElementById('plantBananaButton');
+    const waterButton = document.getElementById('waterButton');
     const harvestButton = document.getElementById('harvestButton');
+    const weatherEl = document.getElementById('weather');
 
-    // Set button event listeners
-    plantButton.addEventListener('click', () => {
-      selectedAction = 'plant';
-      plantButton.style.backgroundColor = '#90ee90';
+    // Helper to reset button highlights
+    function resetButtonHighlights() {
+      plantWheatButton.style.backgroundColor = '';
+      plantRiceButton.style.backgroundColor = '';
+      plantBananaButton.style.backgroundColor = '';
+      waterButton.style.backgroundColor = '';
       harvestButton.style.backgroundColor = '';
+    }
+    // Set button event listeners to select action
+    plantWheatButton.addEventListener('click', () => {
+      selectedAction = 'plantWheat';
+      resetButtonHighlights();
+      plantWheatButton.style.backgroundColor = '#90ee90';
+    });
+    plantRiceButton.addEventListener('click', () => {
+      selectedAction = 'plantRice';
+      resetButtonHighlights();
+      plantRiceButton.style.backgroundColor = '#90ee90';
+    });
+    plantBananaButton.addEventListener('click', () => {
+      selectedAction = 'plantBanana';
+      resetButtonHighlights();
+      plantBananaButton.style.backgroundColor = '#90ee90';
+    });
+    waterButton.addEventListener('click', () => {
+      selectedAction = 'water';
+      resetButtonHighlights();
+      waterButton.style.backgroundColor = '#90ee90';
     });
     harvestButton.addEventListener('click', () => {
       selectedAction = 'harvest';
+      resetButtonHighlights();
       harvestButton.style.backgroundColor = '#90ee90';
-      plantButton.style.backgroundColor = '';
     });
 
     // Handle canvas clicks
@@ -96,74 +169,142 @@
       const col = Math.floor(x / cellSize);
       const row = Math.floor(y / cellSize);
       if (row >= 0 && row < rows && col >= 0 && col < cols) {
-        if (selectedAction === 'plant') {
-          plantSeed(row, col);
+        if (selectedAction.startsWith('plant')) {
+          // Determine crop type based on selected action
+          let type;
+          if (selectedAction === 'plantWheat') type = 'wheat';
+          else if (selectedAction === 'plantRice') type = 'rice';
+          else if (selectedAction === 'plantBanana') type = 'banana';
+          plantCrop(row, col, type);
+        } else if (selectedAction === 'water') {
+          waterCell(row, col);
         } else if (selectedAction === 'harvest') {
           harvestCrop(row, col);
         }
       }
     });
 
-    function plantSeed(row, col) {
-      if (cellStates[row][col] === 0) {
-        cellStates[row][col] = 1;
-        plantTimes[row][col] = Date.now();
+    // Plant a crop of the given type in the specified cell
+    function plantCrop(row, col, type) {
+      const cell = grid[row][col];
+      if (cell.state === 0) {
+        cell.state = 1;
+        cell.type = type;
+        cell.plantTime = Date.now();
+        cell.water = 1; // fully watered when planted
       }
     }
-
+    // Water a cell to replenish its moisture
+    function waterCell(row, col) {
+      const cell = grid[row][col];
+      cell.water = 1; // max water
+    }
+    // Harvest a mature crop and update inventory
     function harvestCrop(row, col) {
-      if (cellStates[row][col] === 2) {
-        cellStates[row][col] = 0;
-        plantTimes[row][col] = 0;
-        inventory++;
-        inventoryCountEl.textContent = inventory;
+      const cell = grid[row][col];
+      if (cell.state === 2) {
+        // Increase inventory for the specific crop type
+        if (cell.type) {
+          inventory[cell.type]++;
+        }
+        // Reset cell
+        cell.state = 0;
+        cell.type = null;
+        cell.plantTime = 0;
+        cell.water = 0;
+        updateInventoryDisplay();
       }
     }
+    // Update the displayed inventory counts
+    function updateInventoryDisplay() {
+      wheatCountEl.textContent = inventory.wheat;
+      riceCountEl.textContent = inventory.rice;
+      bananaCountEl.textContent = inventory.banana;
+    }
 
-    // Update function: check crop growth
+    // Update function: handle growth, water decay and weather
     function update() {
       const now = Date.now();
+      const deltaTime = now - lastUpdateTime;
+      // Water decay and crop growth
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-          if (cellStates[r][c] === 1) {
-            const elapsed = now - plantTimes[r][c];
-            if (elapsed >= growthTime) {
-              cellStates[r][c] = 2;
+          const cell = grid[r][c];
+          if (cell.state === 1) {
+            // Decrease water over time (water lasts ~20 seconds)
+            cell.water = Math.max(0, cell.water - deltaTime / 20000);
+            // Only grow if there's some water
+            if (cell.water > 0) {
+              const crop = cropTypes[cell.type];
+              const elapsed = now - cell.plantTime;
+              if (elapsed >= crop.growthTime) {
+                cell.state = 2;
+              }
             }
+          } else if (cell.state === 2) {
+            // Mature crops still lose water; keep above zero to prevent drying
+            cell.water = Math.max(0, cell.water - deltaTime / 20000);
           }
         }
       }
+      lastUpdateTime = now;
+      // Weather: check for rain every 5 seconds
+      if (now - lastRainCheck > 5000) {
+        lastRainCheck = now;
+        // 20% chance of rain
+        if (Math.random() < 0.2) {
+          weatherState = 'Rain';
+          // Add water to all planted cells
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              grid[r][c].water = Math.min(1, grid[r][c].water + 0.5);
+            }
+          }
+        } else {
+          weatherState = 'Sunny';
+        }
+        weatherEl.textContent = 'Weather: ' + weatherState;
+      }
     }
 
-    // Draw function: render grid and cells
+    // Draw function: render grid, crops, water and icons
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const x = c * cellSize;
           const y = r * cellSize;
-          // Draw cell background based on state
-          if (cellStates[r][c] === 0) {
+          const cell = grid[r][c];
+          // Draw soil based on state
+          if (cell.state === 0) {
             ctx.fillStyle = '#deb887'; // empty soil
-          } else if (cellStates[r][c] === 1) {
-            ctx.fillStyle = '#a0522d'; // freshly planted soil
-          } else if (cellStates[r][c] === 2) {
-            ctx.fillStyle = '#228b22'; // grown crop
+          } else if (cell.state === 1) {
+            ctx.fillStyle = '#a0522d'; // planted soil
+          } else if (cell.state === 2) {
+            ctx.fillStyle = '#228b22'; // mature soil
           }
           ctx.fillRect(x, y, cellSize, cellSize);
-          // Draw seedling or crop icon
-          if (cellStates[r][c] === 1) {
-            // Seedling represented by a small green sprout
-            ctx.fillStyle = '#006400';
+          // Draw water bar if there is water
+          if (cell.water > 0) {
+            const barHeight = cell.water * (cellSize / 4); // water bar uses quarter of cell height
+            ctx.fillStyle = 'rgba(30, 144, 255, 0.6)'; // dodger blue with transparency
+            ctx.fillRect(x, y + cellSize - barHeight, cellSize, barHeight);
+          }
+          // Draw crop seedlings or icons
+          if (cell.state === 1) {
+            // Seed stage: draw small circle with crop-specific color
+            const crop = cropTypes[cell.type];
+            ctx.fillStyle = crop.seedColor;
             ctx.beginPath();
-            ctx.arc(x + cellSize / 2, y + cellSize / 2, 10, 0, Math.PI * 2);
+            ctx.arc(x + cellSize / 2, y + cellSize / 2, 8, 0, Math.PI * 2);
             ctx.fill();
-          } else if (cellStates[r][c] === 2) {
-            // Mature plant represented by a bigger green plant
-            ctx.fillStyle = '#006400';
-            ctx.beginPath();
-            ctx.arc(x + cellSize / 2, y + cellSize / 2, 20, 0, Math.PI * 2);
-            ctx.fill();
+          } else if (cell.state === 2) {
+            // Mature stage: draw emoji at center
+            const crop = cropTypes[cell.type];
+            ctx.font = '32px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(crop.emoji, x + cellSize / 2, y + cellSize / 2);
           }
           // Draw grid lines
           ctx.strokeStyle = '#654321';
@@ -178,6 +319,10 @@
       draw();
       requestAnimationFrame(gameLoop);
     }
+    // Update inventory display initially
+    updateInventoryDisplay();
+    // Highlight default button
+    plantWheatButton.style.backgroundColor = '#90ee90';
     // Start the game
     gameLoop();
   </script>
