@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simple 2D Farming Game</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f0f8ff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+    }
+    #info {
+      margin: 20px;
+      font-size: 1.2rem;
+      color: #333;
+    }
+    canvas {
+      border: 2px solid #333;
+    }
+    #controls {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    button {
+      padding: 8px 12px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>2D Farming Game</h1>
+  <div id="info">Harvested Crops: <span id="inventory-count">0</span></div>
+  <canvas id="gameCanvas" width="600" height="600"></canvas>
+  <div id="controls">
+    <button id="plantButton">Plant Seed</button>
+    <button id="harvestButton">Harvest</button>
+  </div>
+
+  <script>
+    // Game configuration
+    const rows = 6;
+    const cols = 6;
+    const cellSize = 100;
+    const growthTime = 10000; // time in milliseconds for crops to grow
+
+    // Game state arrays
+    const cellStates = []; // 0 = empty, 1 = planted, 2 = grown
+    const plantTimes = []; // timestamp when planted
+    let selectedAction = 'plant';
+    let inventory = 0;
+
+    // Initialize grid arrays
+    for (let r = 0; r < rows; r++) {
+      cellStates[r] = [];
+      plantTimes[r] = [];
+      for (let c = 0; c < cols; c++) {
+        cellStates[r][c] = 0;
+        plantTimes[r][c] = 0;
+      }
+    }
+
+    // Get DOM elements
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const inventoryCountEl = document.getElementById('inventory-count');
+    const plantButton = document.getElementById('plantButton');
+    const harvestButton = document.getElementById('harvestButton');
+
+    // Set button event listeners
+    plantButton.addEventListener('click', () => {
+      selectedAction = 'plant';
+      plantButton.style.backgroundColor = '#90ee90';
+      harvestButton.style.backgroundColor = '';
+    });
+    harvestButton.addEventListener('click', () => {
+      selectedAction = 'harvest';
+      harvestButton.style.backgroundColor = '#90ee90';
+      plantButton.style.backgroundColor = '';
+    });
+
+    // Handle canvas clicks
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const col = Math.floor(x / cellSize);
+      const row = Math.floor(y / cellSize);
+      if (row >= 0 && row < rows && col >= 0 && col < cols) {
+        if (selectedAction === 'plant') {
+          plantSeed(row, col);
+        } else if (selectedAction === 'harvest') {
+          harvestCrop(row, col);
+        }
+      }
+    });
+
+    function plantSeed(row, col) {
+      if (cellStates[row][col] === 0) {
+        cellStates[row][col] = 1;
+        plantTimes[row][col] = Date.now();
+      }
+    }
+
+    function harvestCrop(row, col) {
+      if (cellStates[row][col] === 2) {
+        cellStates[row][col] = 0;
+        plantTimes[row][col] = 0;
+        inventory++;
+        inventoryCountEl.textContent = inventory;
+      }
+    }
+
+    // Update function: check crop growth
+    function update() {
+      const now = Date.now();
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (cellStates[r][c] === 1) {
+            const elapsed = now - plantTimes[r][c];
+            if (elapsed >= growthTime) {
+              cellStates[r][c] = 2;
+            }
+          }
+        }
+      }
+    }
+
+    // Draw function: render grid and cells
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const x = c * cellSize;
+          const y = r * cellSize;
+          // Draw cell background based on state
+          if (cellStates[r][c] === 0) {
+            ctx.fillStyle = '#deb887'; // empty soil
+          } else if (cellStates[r][c] === 1) {
+            ctx.fillStyle = '#a0522d'; // freshly planted soil
+          } else if (cellStates[r][c] === 2) {
+            ctx.fillStyle = '#228b22'; // grown crop
+          }
+          ctx.fillRect(x, y, cellSize, cellSize);
+          // Draw seedling or crop icon
+          if (cellStates[r][c] === 1) {
+            // Seedling represented by a small green sprout
+            ctx.fillStyle = '#006400';
+            ctx.beginPath();
+            ctx.arc(x + cellSize / 2, y + cellSize / 2, 10, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (cellStates[r][c] === 2) {
+            // Mature plant represented by a bigger green plant
+            ctx.fillStyle = '#006400';
+            ctx.beginPath();
+            ctx.arc(x + cellSize / 2, y + cellSize / 2, 20, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // Draw grid lines
+          ctx.strokeStyle = '#654321';
+          ctx.strokeRect(x, y, cellSize, cellSize);
+        }
+      }
+    }
+
+    // Main loop
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+    // Start the game
+    gameLoop();
+  </script>
+</body>
+</html>
